@@ -1,0 +1,8 @@
+# Editor files
+.vscode/
+.zed/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
