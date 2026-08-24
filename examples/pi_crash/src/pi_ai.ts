@@ -4,7 +4,9 @@ import {
     type Context, 
     type Tool, 
     type Api, 
-    type MutableModels
+    type MutableModels,
+    type StringEnum,
+    type AssistantMessage
 } from '@pi-ai';
 import { builtinModels } from '@pi-ai/providers/all';
 import { InMemoryCredentialStore } from '@pi-ai';
@@ -37,6 +39,14 @@ async function wrapper(name: string, run: () => Promise<void>) {
     console.log(`>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ${name} >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`);
     await run();
     console.log(`================================= ${name} =================================`);
+}
+
+async function openaiComplete(context: Context, model: string = 'gpt-4o-mini'): Promise<AssistantMessage> {
+
+    const provider = await initProvider();
+    const m = provider.getModel('openai', model)!;
+
+    return provider.complete(m, context);
 }
 
 async function initProvider(): Promise<MutableModels> {
@@ -173,9 +183,47 @@ async function demoWithComplete() {
     console.log(assistant);
 }
 
+async function demoWithAuth() {
+    const provider = await initProvider();
+    const model = provider.getModel('openai', 'gpt-4o-mini')!;
+
+    const providerAuth = await provider.getAuth(model.provider);
+    const modelAuth = await provider.getAuth(model);
+
+    console.log(providerAuth);
+    console.log(modelAuth);
+}
+
+async function demoWithTool() {
+    const weatherTool: Tool = {
+        name: 'get_weather',
+        description: 'Get current weather for a location',
+        parameters: Type.Object({
+            location: Type.String({ descpriont: 'City name or coordinates' }),
+        }, { additionalProperties: false }),
+        constrainedSampling: { type: 'json_schema', strict: 'prefer' }
+    }
+
+    const context: Context = {
+        messages: [
+            {
+                role: 'user',
+                content: 'What is the weather in London?',
+                timestamp: Date.now()
+            }
+        ],
+        tools: [weatherTool]
+    };
+    
+    const assistant = await openaiComplete(context);
+    console.log(assistant);
+}
+
 async function main() {
     await wrapper("demo with stream", demoWithStream);
     await wrapper("demo with complete", demoWithComplete);
+    await wrapper("demo with auth", demoWithAuth);
+    await wrapper("demo tool", demoWithTool);
 }
 
 main();
