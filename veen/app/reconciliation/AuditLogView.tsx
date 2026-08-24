@@ -1,0 +1,5 @@
+import type { AuditEvent } from "./types";
+
+export function AuditLogView({ events }: { events: AuditEvent[] }) {
+  return <div className="ops-content page-flow"><section className="audit-card"><div className="table-toolbar"><div><p>Immutable event history</p><h3>Control activity</h3></div><div className="toolbar-actions"><label className="ops-search">⌕<input placeholder="Search actor, action or ID" /></label><button className="secondary-action">Filters</button><button className="secondary-action">↓ Export</button></div></div>{events.length ? <div className="audit-timeline">{events.map(event => <article key={event.id}><time><b>Aug 24</b><span>{event.time}</span></time><i className={event.actor === "System" ? "system" : "human"}>{event.actor === "System" ? "S" : event.actor.split(" ").map(part => part[0]).join("")}</i><div><strong>{event.action} <button>{event.target}</button></strong><small>{event.detail}</small></div><span>{event.actor}</span></article>)}</div> : <div className="empty-workspace"><span>◷</span><h3>No control activity yet</h3><p>Profile changes, imports, runs, and exception decisions will be recorded here.</p></div>}</section></div>;
+}
