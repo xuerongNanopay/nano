@@ -1,48 +1,66 @@
-import { Type, type Context, type Tool } from '@pi-ai';
+import { 
+    Type, 
+    type Model, 
+    type Context, 
+    type Tool, 
+    type Api, 
+    type MutableModels
+} from '@pi-ai';
 import { builtinModels } from '@pi-ai/providers/all';
 import { InMemoryCredentialStore } from '@pi-ai';
 import "dotenv/config";
 
-async function main() {
-
-    const credentials = new InMemoryCredentialStore();
-    await credentials.modify("openai", async () => ({
-    type: "api_key",
-    key: process.env.OPENAI_API_KEY,
-    }));
-    const models = builtinModels({ credentials });
-
-    // const openaiModels = models.getModels('openai');
-    // for (const m of openaiModels) {
-    //     console.log(`${m.id}: ${m.name}`);
-    //     console.log(`   API: ${m.api}`);
-    //     console.log(`   Context: ${m.contextWindow} tokens`);
-    //     console.log(`   Vision: ${m.input.includes('image')}`);
-    //     console.log(`   Reasoning: ${m.reasoning}`);
-    // }
-
-    const model = models.getModel('openai', 'gpt-4o-mini')!;
-    console.log(`${model.id}`);
-    console.log(`   API: ${model.api}`);
-    console.log(`   Context: ${model.contextWindow} tokens`);
-    console.log(`   Vision: ${model.input.includes('image')}`);
-    console.log(`   Reasoning: ${model.reasoning}`);
-
-    const tools: Tool[] = [{
+const tools: Tool[] = [
+    {
         name: 'get_time',
         description: 'Get the current time',
         parameters: Type.Object({
             timezone: Type.Optional(Type.String({ description: 'Optional timezone (e.g., America/New_York'}))
         })
-    }];
+    },
+    {
+        name: 'whoami',
+        description: 'Return current username',
+        parameters: Type.Never
+    }
+];
 
+function printModelMeta(model: Model<Api>) {
+    console.log(`${model.id}`);
+    console.log(`   API: ${model.api}`);
+    console.log(`   Context: ${model.contextWindow} tokens`);
+    console.log(`   Vision: ${model.input.includes('image')}`);
+    console.log(`   Reasoning: ${model.reasoning}`);
+}
+
+function wrapper(name: string, apply: () => void) {
+    console.log(`>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ${name} >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`);
+    apply()
+    console.log(`================================= ${name} =================================`);
+}
+
+async function initProvider(): Promise<MutableModels> {
+    const credentials = new InMemoryCredentialStore();
+    await credentials.modify('openai', async () => ({
+        type: 'api_key',
+        key: process.env.OPENAI_API_KEY!
+    }))
+    return builtinModels({ credentials });
+}
+
+async function demo1() {
+
+    const provider = await initProvider();
+    const model = provider.getModel('openai', 'gpt-4o-mini')!;
+    printModelMeta(model);
+    
     const context: Context = {
         systemPrompt: 'You are a help assistant.',
         messages: [{ role: 'user', content: 'What time is it?', timestamp: Date.now() }],
         tools
     };
 
-    const s = models.stream(model, context);
+    const s = provider.stream(model, context);
 
     for await (const event of s) {
     switch (event.type) {
@@ -112,7 +130,7 @@ async function main() {
     }
 
     if (toolCalls.length > 0) {
-        const continuation = await models.complete(model, context);
+        const continuation = await provider.complete(model, context);
         context.messages.push(continuation);
         console.log('After tool execution: ', continuation.content);
     }
@@ -120,7 +138,7 @@ async function main() {
     console.log(`Total tokens: ${finalMessage.usage.input} in, ${finalMessage.usage.output} out`);
     console.log(`Cost: $${finalMessage.usage.cost.total.toFixed(4)}`);
 
-    const response = await models.complete(model, context);
+    const response = await provider.complete(model, context);
 
     for (const block of response.content) {
         if (block.type === 'text') {
@@ -129,6 +147,10 @@ async function main() {
             console.log(`Tool: ${block.name}(${JSON.stringify(block.arguments)})`);
         }
     }
+}
+
+async function main() {
+    demo1();
 }
 
 main();
