@@ -33,22 +33,23 @@ function printModelMeta(model: Model<Api>) {
     console.log(`   Reasoning: ${model.reasoning}`);
 }
 
-function wrapper(name: string, apply: () => void) {
+async function wrapper(name: string, run: () => Promise<void>) {
     console.log(`>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ${name} >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`);
-    apply()
+    await run();
     console.log(`================================= ${name} =================================`);
 }
 
 async function initProvider(): Promise<MutableModels> {
-    const credentials = new InMemoryCredentialStore();
-    await credentials.modify('openai', async () => ({
-        type: 'api_key',
-        key: process.env.OPENAI_API_KEY!
-    }))
-    return builtinModels({ credentials });
+    // const credentials = new InMemoryCredentialStore();
+    // await credentials.modify('openai', async () => ({
+    //     type: 'api_key',
+    //     key: process.env.OPENAI_API_KEY!
+    // }))
+    // return builtinModels({ credentials });
+    return builtinModels();
 }
 
-async function demo1() {
+async function demoWithStream() {
 
     const provider = await initProvider();
     const model = provider.getModel('openai', 'gpt-4o-mini')!;
@@ -149,8 +150,32 @@ async function demo1() {
     }
 }
 
+async function demoWithComplete() {
+    const provider = await initProvider();
+    const model = provider.getModel('openai', 'gpt-4o-mini')!;
+    printModelMeta(model);
+    
+
+    const context: Context = {
+        systemPrompt: "You are concise and practical.",
+        messages: [
+            {
+            role: "user",
+            content: "WHat is my name?",
+            timestamp: Date.now(),
+            },
+        ],
+        tools
+    };
+
+    const assistant = await provider.complete(model, context);
+
+    console.log(assistant);
+}
+
 async function main() {
-    demo1();
+    await wrapper("demo with stream", demoWithStream);
+    await wrapper("demo with complete", demoWithComplete);
 }
 
 main();
