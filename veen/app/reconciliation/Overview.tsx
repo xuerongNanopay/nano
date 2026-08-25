@@ -1,34 +1,45 @@
-import { Kpi, RunsTable, SectionTitle, Stage } from "./Shared";
-import type { DashboardMetrics, DataSource, ReconciliationRun, View } from "./types";
+import type { DashboardMetrics, DataSource, ExceptionItem, ReconciliationProfile, ReconciliationRun, View } from "./types";
 
-export function Overview({ metrics, runs, sources, navigate }: { metrics: DashboardMetrics; runs: ReconciliationRun[]; sources: DataSource[]; navigate: (view: View) => void }) {
-  const readiness = Math.round(Number(metrics.matchRate.replace("%", ""))) || 0;
-  const healthy = sources.filter(source => source.status === "Healthy").length;
-  const delayed = sources.filter(source => source.status === "Delayed").length;
-  const failed = sources.filter(source => source.status === "Failed").length;
-  const recent = Math.round(metrics.openExceptions * .55);
-  const dayTwo = Math.round(metrics.openExceptions * .25);
-  const aged = Math.round(metrics.openExceptions * .14);
-  const critical = Math.max(0, metrics.openExceptions - recent - dayTwo - aged);
-  return <div className="ops-content">
-    <div className="status-line"><div><span className="live-dot" />Live position <b>Aug 24, 2026</b><small>Mock backend refreshed just now</small></div><div><span>Close readiness</span><strong>{readiness}%</strong><i><b style={{ width: `${readiness}%` }} /></i></div></div>
-    <section className="kpi-grid"><Kpi label="Total records processed" value={metrics.processed} badge="Today" tone="neutral" detail={`${runs.length} runs`} suffix="in this profile" /><Kpi label="Auto-match rate" value={metrics.matchRate} badge={readiness >= 98 ? "Healthy" : "Review"} tone={readiness >= 98 ? "good" : "warn"} detail={`${sources.length} sources`} suffix="in profile scope" /><Kpi label="Open exceptions" value={metrics.openExceptions.toLocaleString()} badge="Attention" tone="warn" detail={`${(aged + critical).toLocaleString()} aged`} suffix="beyond 48 hours" negative /><Kpi label="Unresolved value" value={metrics.unresolvedValue} badge="Control risk" tone="risk" detail="Profile-scoped" suffix="unresolved position" negative /></section>
-    <section className="position-grid">
-      <article className="pipeline-card">
-        <SectionTitle eyebrow="Today’s processing position" title="Reconciliation pipeline" action="View match runs →" onAction={() => navigate("Match runs")} />
-        <div className="pipeline pipeline-clickable">
-          <button className="pipeline-stage" aria-label={`View ${metrics.pipeline.ingested} ingested records`} onClick={() => navigate("Imports")}><Stage icon="↓" tone="blue-stage" value={metrics.pipeline.ingested} label="Ingested" /></button>
-          <i className="pipeline-connector" aria-hidden="true">›</i>
-          <button className="pipeline-stage" aria-label={`View ${metrics.pipeline.normalized} normalized records`} onClick={() => navigate("Normalization")}><Stage icon="≡" tone="blue-stage" value={metrics.pipeline.normalized} label="Normalized" /></button>
-          <i className="pipeline-connector" aria-hidden="true">›</i>
-          <button className="pipeline-stage" aria-label={`View ${metrics.pipeline.matched} matched records`} onClick={() => navigate("Match runs")}><Stage icon="✓" tone="green-stage" value={metrics.pipeline.matched} label="Matched" /></button>
-          <i className="pipeline-connector" aria-hidden="true">›</i>
-          <button className="pipeline-stage" aria-label={`View ${metrics.pipeline.exceptions} exceptions`} onClick={() => navigate("Exceptions")}><Stage icon="!" tone="amber-stage" value={metrics.pipeline.exceptions} label="Exceptions" /></button>
-        </div>
-        <div className="pipeline-foot"><span><i className="source-dot good" />{healthy} sources healthy</span><span><i className="source-dot warn" />{delayed} delayed</span><span><i className="source-dot bad" />{failed} failed</span><b>{sources.length} profile connections</b></div>
-      </article>
-      <aside className="ageing-card"><SectionTitle eyebrow="Exception risk" title="Break ageing" action="Details" onAction={() => navigate("Exceptions")} /><div className="ageing-chart"><span style={{ height: "76%" }}><b>{recent.toLocaleString()}</b><i>0–24h</i></span><span style={{ height: "52%" }}><b>{dayTwo.toLocaleString()}</b><i>24–48h</i></span><span className="aged" style={{ height: "34%" }}><b>{aged.toLocaleString()}</b><i>2–5d</i></span><span className="critical" style={{ height: "21%" }}><b>{critical.toLocaleString()}</b><i>5d+</i></span></div></aside>
+const severityOrder: Record<ExceptionItem["severity"], number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+
+export function Overview({ profile, metrics, runs, sources, exceptions, navigate, selectException }: { profile: ReconciliationProfile; metrics: DashboardMetrics; runs: ReconciliationRun[]; sources: DataSource[]; exceptions: ExceptionItem[]; navigate: (view: View) => void; selectException: (item: ExceptionItem) => void }) {
+  const priorityItems = exceptions.filter(item => item.status !== "Resolved").sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || a.priority - b.priority).slice(0, 3);
+  const critical = exceptions.filter(item => item.status !== "Resolved" && item.severity === "Critical").length;
+  const healthySources = sources.filter(source => source.status === "Healthy").length;
+  const sourceIssues = sources.length - healthySources;
+  const latestRun = runs[0];
+  const actionNeeded = critical > 0 || sources.some(source => source.status === "Failed");
+
+  return <div className="ops-content focused-overview">
+    <section className={`control-status ${actionNeeded ? "attention" : "healthy"}`}>
+      <div><span className="control-state"><i />{actionNeeded ? "Action needed" : "On track"}</span><h2>{actionNeeded ? "Review the priority exceptions" : "Reconciliation is under control"}</h2><p>{metrics.openExceptions.toLocaleString()} exceptions remain open{critical ? `, including ${critical} critical item${critical === 1 ? "" : "s"}` : ""}.</p></div>
+      <dl><div><dt>Last run</dt><dd>{profile.lastRun}</dd></div><div><dt>Next run</dt><dd>{profile.nextRun}</dd></div><div><dt>Owner</dt><dd>{profile.owner}</dd></div></dl>
+      <button className="secondary-action" onClick={() => navigate("Exceptions")}>Review exceptions</button>
     </section>
-    <RunsTable runs={runs} compact />
+
+    <section className="essential-metrics" aria-label="Key reconciliation status">
+      <article><p>Match rate</p><h2>{metrics.matchRate}</h2><small>{latestRun?.status === "Review" ? "Latest run needs review" : "Latest run completed"}</small></article>
+      <article><p>Open exceptions</p><h2>{metrics.openExceptions.toLocaleString()}</h2><small>{critical ? `${critical} critical in the priority queue` : "No critical items"}</small></article>
+      <article><p>Unresolved value</p><h2>{metrics.unresolvedValue}</h2><small>Current financial exposure</small></article>
+    </section>
+
+    <section className="focused-grid">
+      <article className="processing-card">
+        <header><div><p>Latest processing status</p><h3>{latestRun?.name ?? "No reconciliation run"}</h3></div>{latestRun && <i className={`run-status ${latestRun.status.toLowerCase()}`}>{latestRun.status}</i>}</header>
+        <div className="simple-pipeline">
+          <div><span>1</span><p><strong>{metrics.processed}</strong><small>Records checked</small></p></div>
+          <i aria-hidden="true">→</i>
+          <div><span>2</span><p><strong>{metrics.pipeline.matched}</strong><small>Matched</small></p></div>
+          <i aria-hidden="true">→</i>
+          <div className="needs-review"><span>3</span><p><strong>{metrics.pipeline.exceptions}</strong><small>Needs review</small></p></div>
+        </div>
+        <footer><span><i className="source-dot good" />{healthySources} of {sources.length} sources healthy</span>{sourceIssues > 0 && <span><i className="source-dot warn" />{sourceIssues} source{sourceIssues === 1 ? "" : "s"} need attention</span>}<button onClick={() => navigate("Match runs")}>View run history</button></footer>
+      </article>
+
+      <article className="priority-card">
+        <header><div><p>Priority queue</p><h3>Exceptions to review</h3></div><button onClick={() => navigate("Exceptions")}>View all</button></header>
+        <div className="priority-list">{priorityItems.length ? priorityItems.map(item => <button onClick={() => selectException(item)} key={item.id}><div><strong>{item.type}</strong><small>{item.id} · {item.age} old</small></div><span>{item.amount}</span><i className={`severity-pill ${item.severity.toLowerCase()}`}>{item.severity}</i><b>›</b></button>) : <div className="priority-empty"><span>✓</span><p>No priority exceptions</p></div>}</div>
+      </article>
+    </section>
   </div>;
 }

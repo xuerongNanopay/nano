@@ -1,12 +1,33 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { DataSource, ImportBatch, IngestFileInput } from "./types";
 
 export function ImportsView({ imports, sources, onIngest, onValidate, onNormalize, busy }: { imports: ImportBatch[]; sources: DataSource[]; onIngest: (input: Omit<IngestFileInput, "profileId">) => void; onValidate: (id: string) => void; onNormalize: (id: string) => void; busy: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const upload = (file?: File) => onIngest({ fileName: file?.name ?? "processor_transactions_20260824.csv", sourceId: sources[0]?.id ?? "SRC-VISA", size: file?.size ?? 18520000 });
-  return <div className="ops-content page-flow">
-    <section className="ingest-hero"><div><span className="stage-icon blue-stage">↓</span><div><p>INBOUND CONTROL</p><h2>Bring payment data into one controlled pipeline</h2><small>CSV and Excel work now. The backend contract also defines SFTP, API, webhook, and database source boundaries.</small></div></div><div className="ingest-actions"><input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" onChange={event => upload(event.target.files?.[0])} hidden /><button className="secondary-action" onClick={() => fileRef.current?.click()}>Choose file</button><button className="primary-action" onClick={() => upload()} disabled={Boolean(busy)}>＋ Upload mock CSV</button></div></section>
-    <section className="ingest-channels">{[{ icon: "▤", title: "CSV / Excel", detail: "Manual upload with schema, count and duplicate controls", state: "Available" }, { icon: "⇣", title: "Managed SFTP", detail: "Scheduled pulls with checksum and late-file monitoring", state: "Contract ready" }, { icon: "⌁", title: "API / Webhook", detail: "Streaming processor events and settlement callbacks", state: "Contract ready" }, { icon: "▦", title: "Ledger / Database", detail: "Controlled extracts from internal accounting records", state: "Contract ready" }].map(channel => <article key={channel.title}><span>{channel.icon}</span><div><h3>{channel.title}</h3><p>{channel.detail}</p></div><i>{channel.state}</i></article>)}</section>
-    <section className="imports-card"><div className="table-toolbar"><div><p>File control history</p><h3>Import batches</h3></div><div className="backend-chip"><i />Mock repository · backend functions active</div></div>{imports.length ? <div className="imports-table"><div className="imports-head"><span>Batch & source</span><span>Records</span><span>Valid</span><span>Duplicates</span><span>Control result</span><span>Action</span></div>{imports.map(batch => <article className="imports-row" key={batch.id}><div><strong>{batch.fileName}</strong><small>{batch.id} · {batch.sourceName} · {batch.receivedAt}</small></div><span>{batch.records.toLocaleString()}</span><span>{batch.validRecords.toLocaleString()}</span><span>{batch.duplicates.toLocaleString()}</span><div><i className={`run-status ${batch.status === "Failed" ? "review" : batch.status === "Normalized" ? "complete" : "running"}`}>{batch.status}</i>{batch.issues[0] && <small>{batch.issues[0]}</small>}</div><button onClick={() => batch.status === "Validating" ? onValidate(batch.id) : onNormalize(batch.id)} disabled={batch.status === "Failed" || batch.status === "Normalized"}>{batch.status === "Validating" ? "Validate" : batch.status === "Validated" ? "Normalize" : "Done"}</button></article>)}</div> : <div className="empty-workspace"><span>↓</span><h3>No imports for this profile</h3><p>Upload a mock CSV or connect a source to begin the controlled pipeline.</p></div>}</section>
+  const [sourceId, setSourceId] = useState(sources[0]?.id ?? "");
+  const [error, setError] = useState("");
+
+  const upload = (file?: File) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".csv")) { setError("Choose a CSV file."); return; }
+    if (!sourceId) { setError("Choose a data source first."); return; }
+    setError("");
+    onIngest({ fileName: file.name, sourceId, size: file.size });
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  return <div className="ops-content page-flow focused-imports">
+    <section className="csv-import-card">
+      <header><div><p>External data</p><h2>Upload a CSV file</h2><small>Add transaction or settlement records to the active reconciliation profile.</small></div><label>Data source<select value={sourceId} onChange={event => setSourceId(event.target.value)}>{sources.map(source => <option value={source.id} key={source.id}>{source.name}</option>)}</select></label></header>
+      <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={event => upload(event.target.files?.[0])} hidden />
+      <button className="csv-drop-zone" type="button" disabled={Boolean(busy) || !sources.length} onClick={() => fileRef.current?.click()} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); upload(event.dataTransfer.files?.[0]); }}><span>↓</span><strong>Choose a CSV file</strong><small>or drag and drop it here</small></button>
+      {error && <p className="csv-error">{error}</p>}
+    </section>
+
+    <section className="imports-card simple-imports-card"><div className="table-toolbar"><div><p>Import history</p><h3>CSV batches</h3></div><span className="backend-chip"><i />Mock data storage</span></div>{imports.length ? <div className="simple-import-list"><div className="simple-import-head"><span>File</span><span>Records</span><span>Issues</span><span>Status</span><span>Next step</span></div>{imports.map(batch => {
+      const complete = batch.status === "Normalized";
+      const failed = batch.status === "Failed";
+      const action = batch.status === "Validating" ? "Validate" : batch.status === "Validated" ? "Prepare for matching" : complete ? "Ready" : "Fix file";
+      return <article className="simple-import-row" key={batch.id}><div><strong>{batch.fileName}</strong><small>{batch.sourceName} · {batch.receivedAt}</small></div><span>{batch.records.toLocaleString()}</span><span>{batch.issues.length || "—"}</span><i className={`run-status ${failed ? "review" : complete ? "complete" : "running"}`}>{batch.status}</i><button onClick={() => batch.status === "Validating" ? onValidate(batch.id) : onNormalize(batch.id)} disabled={failed || complete || Boolean(busy)}>{action}</button></article>;
+    })}</div> : <div className="empty-workspace"><span>↓</span><h3>No CSV files imported</h3><p>Choose a file above to create the first batch.</p></div>}</section>
   </div>;
 }
