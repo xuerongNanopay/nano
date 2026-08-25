@@ -1,48 +1,77 @@
-import { Type, type Context, type Tool } from '@pi-ai';
+import { 
+    Type, 
+    type Model, 
+    type Context, 
+    type Tool, 
+    type Api, 
+    type MutableModels,
+    type StringEnum,
+    type AssistantMessage
+} from '@pi-ai';
 import { builtinModels } from '@pi-ai/providers/all';
 import { InMemoryCredentialStore } from '@pi-ai';
 import "dotenv/config";
 
-async function main() {
-
-    const credentials = new InMemoryCredentialStore();
-    await credentials.modify("openai", async () => ({
-    type: "api_key",
-    key: process.env.OPENAI_API_KEY,
-    }));
-    const models = builtinModels({ credentials });
-
-    // const openaiModels = models.getModels('openai');
-    // for (const m of openaiModels) {
-    //     console.log(`${m.id}: ${m.name}`);
-    //     console.log(`   API: ${m.api}`);
-    //     console.log(`   Context: ${m.contextWindow} tokens`);
-    //     console.log(`   Vision: ${m.input.includes('image')}`);
-    //     console.log(`   Reasoning: ${m.reasoning}`);
-    // }
-
-    const model = models.getModel('openai', 'gpt-4o-mini')!;
-    console.log(`${model.id}`);
-    console.log(`   API: ${model.api}`);
-    console.log(`   Context: ${model.contextWindow} tokens`);
-    console.log(`   Vision: ${model.input.includes('image')}`);
-    console.log(`   Reasoning: ${model.reasoning}`);
-
-    const tools: Tool[] = [{
+const tools: Tool[] = [
+    {
         name: 'get_time',
         description: 'Get the current time',
         parameters: Type.Object({
             timezone: Type.Optional(Type.String({ description: 'Optional timezone (e.g., America/New_York'}))
         })
-    }];
+    },
+    {
+        name: 'whoami',
+        description: 'Return current username',
+        parameters: Type.Never
+    }
+];
 
+function printModelMeta(model: Model<Api>) {
+    console.log(`${model.id}`);
+    console.log(`   API: ${model.api}`);
+    console.log(`   Context: ${model.contextWindow} tokens`);
+    console.log(`   Vision: ${model.input.includes('image')}`);
+    console.log(`   Reasoning: ${model.reasoning}`);
+}
+
+async function wrapper(name: string, run: () => Promise<void>) {
+    console.log(`>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ${name} >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`);
+    await run();
+    console.log(`================================= ${name} =================================`);
+}
+
+async function openaiComplete(context: Context, model: string = 'gpt-4o-mini'): Promise<AssistantMessage> {
+
+    const provider = await initProvider();
+    const m = provider.getModel('openai', model)!;
+
+    return provider.complete(m, context);
+}
+
+async function initProvider(): Promise<MutableModels> {
+    // const credentials = new InMemoryCredentialStore();
+    // await credentials.modify('openai', async () => ({
+    //     type: 'api_key',
+    //     key: process.env.OPENAI_API_KEY!
+    // }))
+    // return builtinModels({ credentials });
+    return builtinModels();
+}
+
+async function demoWithStream() {
+
+    const provider = await initProvider();
+    const model = provider.getModel('openai', 'gpt-4o-mini')!;
+    printModelMeta(model);
+    
     const context: Context = {
         systemPrompt: 'You are a help assistant.',
         messages: [{ role: 'user', content: 'What time is it?', timestamp: Date.now() }],
         tools
     };
 
-    const s = models.stream(model, context);
+    const s = provider.stream(model, context);
 
     for await (const event of s) {
     switch (event.type) {
@@ -112,7 +141,7 @@ async function main() {
     }
 
     if (toolCalls.length > 0) {
-        const continuation = await models.complete(model, context);
+        const continuation = await provider.complete(model, context);
         context.messages.push(continuation);
         console.log('After tool execution: ', continuation.content);
     }
@@ -120,7 +149,7 @@ async function main() {
     console.log(`Total tokens: ${finalMessage.usage.input} in, ${finalMessage.usage.output} out`);
     console.log(`Cost: $${finalMessage.usage.cost.total.toFixed(4)}`);
 
-    const response = await models.complete(model, context);
+    const response = await provider.complete(model, context);
 
     for (const block of response.content) {
         if (block.type === 'text') {
@@ -129,6 +158,72 @@ async function main() {
             console.log(`Tool: ${block.name}(${JSON.stringify(block.arguments)})`);
         }
     }
+}
+
+async function demoWithComplete() {
+    const provider = await initProvider();
+    const model = provider.getModel('openai', 'gpt-4o-mini')!;
+    printModelMeta(model);
+    
+
+    const context: Context = {
+        systemPrompt: "You are concise and practical.",
+        messages: [
+            {
+            role: "user",
+            content: "WHat is my name?",
+            timestamp: Date.now(),
+            },
+        ],
+        tools
+    };
+
+    const assistant = await provider.complete(model, context);
+
+    console.log(assistant);
+}
+
+async function demoWithAuth() {
+    const provider = await initProvider();
+    const model = provider.getModel('openai', 'gpt-4o-mini')!;
+
+    const providerAuth = await provider.getAuth(model.provider);
+    const modelAuth = await provider.getAuth(model);
+
+    console.log(providerAuth);
+    console.log(modelAuth);
+}
+
+async function demoWithTool() {
+    const weatherTool: Tool = {
+        name: 'get_weather',
+        description: 'Get current weather for a location',
+        parameters: Type.Object({
+            location: Type.String({ descpriont: 'City name or coordinates' }),
+        }, { additionalProperties: false }),
+        constrainedSampling: { type: 'json_schema', strict: 'prefer' }
+    }
+
+    const context: Context = {
+        messages: [
+            {
+                role: 'user',
+                content: 'What is the weather in London?',
+                timestamp: Date.now()
+            }
+        ],
+        tools: [weatherTool]
+    };
+    
+    const assistant = await openaiComplete(context);
+    console.log(assistant);
+}
+
+async function main() {
+    await wrapper("demo with stream", demoWithStream);
+    await wrapper("demo with complete", demoWithComplete);
+    await wrapper("demo with auth", demoWithAuth);
+    await wrapper("demo tool", demoWithTool);
 }
 
 main();
